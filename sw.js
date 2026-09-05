@@ -1,4 +1,4 @@
-const CACHE = 'finance-tracker-v4';
+const CACHE = 'finance-tracker-v5';
 const FILES = [
   './index.html',
   './manifest.json',
