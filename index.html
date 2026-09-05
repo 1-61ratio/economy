@@ -293,6 +293,72 @@
   .trend-row .nums b.pos{ color: var(--green); }
   .trend-row .nums b.neg{ color: var(--red); }
 
+  .recur-section{
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 26px;
+  }
+  .recur-section h2{ font-size: 14px; font-weight:600; margin: 0 0 12px; }
+  .recur-list{ display:flex; flex-direction:column; margin-bottom: 14px; }
+  .recur-row{
+    display:flex; align-items:center; gap:10px;
+    padding: 9px 0; border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 13px;
+  }
+  .recur-row:last-child{ border-bottom:none; }
+  .recur-row .dot{ width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+  .recur-row.income .dot{ background: var(--green); }
+  .recur-row.expense .dot{ background: var(--red); }
+  .recur-row .meta{ flex:1; min-width:0; }
+  .recur-row .cat{ font-weight:500; }
+  .recur-row .when{ font-size:11px; color: var(--text-dim); }
+  .recur-row .amt{ font-family: var(--mono); font-weight:600; flex-shrink:0; }
+  .recur-row.income .amt{ color: var(--green); }
+  .recur-row.expense .amt{ color: var(--red); }
+  .recur-row .del{ background:none; border:none; color: var(--text-dim); font-size:16px; cursor:pointer; padding:2px 4px; flex-shrink:0; }
+  .recur-row .del:hover{ color: var(--red); }
+  .recur-toggle{
+    width:100%; text-align:left; background: var(--surface-2); border: 1px dashed var(--line);
+    color: var(--text-dim); font-family: var(--sans); font-size:13px; font-weight:600;
+    padding: 10px 12px; border-radius:10px; cursor:pointer;
+  }
+  .recur-form{ margin-top: 12px; }
+  .day-select{ width:100%; }
+
+  .goal-card{
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+  .goal-card .goal-top{ display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 14px; }
+  .goal-card .goal-name{ font-size: 16px; font-weight:700; }
+  .goal-card .goal-del{ background:none; border:none; color: var(--text-dim); font-size:16px; cursor:pointer; padding:2px 6px; }
+  .goal-card .goal-del:hover{ color: var(--red); }
+  .goal-card .goal-amounts{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px; }
+  .goal-card .saved{ font-family: var(--mono); font-size: 20px; font-weight:700; color: var(--gold); }
+  .goal-card .target{ font-family: var(--mono); font-size: 13px; color: var(--text-dim); }
+  .goal-track{ height: 10px; background: var(--surface-2); border-radius: 999px; overflow:hidden; margin-bottom: 8px; }
+  .goal-fill{ height:100%; background: linear-gradient(90deg, #c99a3e, var(--gold)); border-radius:999px; transition: width .3s; }
+  .goal-sub{ display:flex; justify-content:space-between; font-size: 11.5px; color: var(--text-dim); font-family: var(--mono); margin-bottom: 14px; }
+  .goal-actions{ display:flex; gap:8px; }
+  .goal-actions input{
+    flex:1; background: var(--surface-2); border:1px solid var(--line); border-radius:8px;
+    color: var(--text); font-family: var(--mono); font-size:13px; padding: 8px 10px;
+  }
+  .goal-actions button{
+    border:none; border-radius:8px; padding: 8px 14px; font-family: var(--sans);
+    font-size:12.5px; font-weight:700; cursor:pointer;
+  }
+  .goal-actions .add-money{ background: var(--gold); color:#1a1305; }
+  .goal-actions .take-money{ background: var(--surface-2); color: var(--text-dim); }
+  .goal-form{
+    background: var(--surface); border: 1px dashed var(--line); border-radius:14px; padding: 16px;
+  }
+
   .empty{
     text-align:center;
     color: var(--text-dim);
@@ -318,13 +384,16 @@ let state = {
   rate: 10.0,      // 1 PLN = X UAH
   rateMode: 'auto', // 'auto' | 'manual'
   rateUpdatedAt: null, // ISO string of last successful auto-fetch
-  txs: [],         // {id, type, amount, category, note, date}
+  txs: [],         // {id, type, amount, category, note, date, recurringId?}
+  recurring: [],   // {id, type, amount, category, note, day}
+  goals: [],       // {id, name, target, saved}
   type: 'expense',
   loaded: false,
-  view: 'diary',   // 'diary' | 'stats'
+  view: 'diary',   // 'diary' | 'stats' | 'goals'
   period: 'month', // 'month' | '3m' | '6m' | 'year' | 'all'
   rateFetching: false,
-  rateError: false
+  rateError: false,
+  recurType: 'expense'
 };
 
 const PERIODS = [
@@ -389,11 +458,14 @@ async function loadState(){
       state.rateMode = parsed.rateMode ?? 'auto';
       state.rateUpdatedAt = parsed.rateUpdatedAt ?? null;
       state.txs = parsed.txs ?? [];
+      state.recurring = parsed.recurring ?? [];
+      state.goals = parsed.goals ?? [];
     }
   }catch(e){
     // no saved state yet
   }
   state.loaded = true;
+  applyRecurring();
   render();
   if(state.rateMode === 'auto') fetchRate(false);
 }
@@ -401,11 +473,72 @@ async function loadState(){
 async function saveState(){
   try{
     localStorage.setItem('finance-state', JSON.stringify({
-      rate: state.rate, rateMode: state.rateMode, rateUpdatedAt: state.rateUpdatedAt, txs: state.txs
+      rate: state.rate, rateMode: state.rateMode, rateUpdatedAt: state.rateUpdatedAt,
+      txs: state.txs, recurring: state.recurring, goals: state.goals
     }));
   }catch(e){
     console.error('Не удалось сохранить данные', e);
   }
+}
+
+function daysInMonth(y, m){ return new Date(y, m+1, 0).getDate(); } // m: 0-indexed
+
+function applyRecurring(){
+  if(!state.recurring.length) return;
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth();
+  const mKey = monthKey(now.toISOString());
+  let changed = false;
+  state.recurring.forEach(rule=>{
+    const day = Math.min(rule.day, daysInMonth(y, m));
+    if(now.getDate() < day) return; // ещё не наступил день в этом месяце
+    const already = state.txs.some(tx => tx.recurringId === rule.id && monthKey(tx.date) === mKey);
+    if(already) return;
+    const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    state.txs.push({
+      id: Date.now()+'-'+Math.random().toString(36).slice(2,7),
+      type: rule.type, amount: rule.amount, category: rule.category,
+      note: rule.note, date: dateStr, recurringId: rule.id
+    });
+    changed = true;
+  });
+  if(changed){
+    state.txs.sort((a,b)=> new Date(b.date) - new Date(a.date));
+    saveState();
+  }
+}
+
+function addRecurring(rule){
+  state.recurring.push(rule);
+  saveState();
+  applyRecurring();
+  render();
+}
+
+function deleteRecurring(id){
+  state.recurring = state.recurring.filter(r => r.id !== id);
+  saveState();
+  render();
+}
+
+function addGoal(goal){
+  state.goals.push(goal);
+  saveState();
+  render();
+}
+
+function deleteGoal(id){
+  state.goals = state.goals.filter(g => g.id !== id);
+  saveState();
+  render();
+}
+
+function contributeGoal(id, amount){
+  const g = state.goals.find(g => g.id === id);
+  if(!g) return;
+  g.saved = Math.max(0, g.saved + amount);
+  saveState();
+  render();
 }
 
 function hoursSince(iso){
@@ -501,6 +634,7 @@ function render(){
     <div class="view-tabs">
       <button type="button" data-view="diary" class="${state.view==='diary'?'active':''}">Дневник</button>
       <button type="button" data-view="stats" class="${state.view==='stats'?'active':''}">Статистика</button>
+      <button type="button" data-view="goals" class="${state.view==='goals'?'active':''}">Накопления</button>
     </div>
 
     <div id="viewBody"></div>
@@ -510,7 +644,9 @@ function render(){
     b.addEventListener('click', ()=>{ state.view = b.dataset.view; render(); });
   });
 
-  if(state.view === 'diary') renderDiary(); else renderStats();
+  if(state.view === 'diary') renderDiary();
+  else if(state.view === 'stats') renderStats();
+  else renderGoals();
 }
 
 function renderDiary(){
@@ -592,6 +728,57 @@ function renderDiary(){
       <button type="submit" class="submit">Добавить</button>
     </form>
 
+    <div class="recur-section">
+      <h2>Регулярные платежи</h2>
+      ${state.recurring.length === 0 ? '<div class="empty" style="margin-bottom:14px;">Пока нет ни одного — добавь, например, аренду за квартиру, и она будет появляться в дневнике сама каждый месяц.</div>' : `
+        <div class="recur-list">
+          ${state.recurring.map(r => `
+            <div class="recur-row ${r.type}">
+              <div class="dot"></div>
+              <div class="meta">
+                <div class="cat">${r.category}${r.note ? ' · ' + escapeHtml(r.note) : ''}</div>
+                <div class="when">каждое ${r.day}-е число</div>
+              </div>
+              <div class="amt">${r.type==='income'?'+':'−'}${fmt(r.amount)} zł</div>
+              <button class="del" data-recur-id="${r.id}" title="Удалить">×</button>
+            </div>
+          `).join('')}
+        </div>
+      `}
+      <button type="button" class="recur-toggle" id="recurToggle">+ Добавить регулярный платёж</button>
+      <form class="recur-form" id="recurForm" style="display:none;">
+        <div class="seg">
+          <button type="button" class="tab-income ${state.recurType==='income'?'active income':''}" data-rtype="income">Доход</button>
+          <button type="button" class="tab-expense ${state.recurType==='expense'?'active expense':''}" data-rtype="expense">Расход</button>
+        </div>
+        <div class="row">
+          <div class="field amount">
+            <label>Сумма, zł</label>
+            <input type="number" step="0.01" min="0.01" id="recurAmount" placeholder="0.00" required>
+          </div>
+          <div class="field">
+            <label>Число месяца</label>
+            <select id="recurDay" class="day-select">
+              ${Array.from({length:31}, (_,i)=>i+1).map(d=>`<option value="${d}">${d}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Категория</label>
+            <select id="recurCat">
+              ${(state.recurType==='income'?CATS_INCOME:CATS_EXPENSE).map(c=>`<option value="${c}">${c}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field">
+            <label>Заметка (необязательно)</label>
+            <input type="text" id="recurNote" placeholder="например, аренда квартиры">
+          </div>
+        </div>
+        <button type="submit" class="submit">Сохранить</button>
+      </form>
+    </div>
+
     <div id="history">
       ${sortedMonths.length === 0 ? '<div class="empty">Пока нет записей — добавь первую операцию выше.</div>' : sortedMonths.map(k=>{
         const list = groups[k];
@@ -644,8 +831,29 @@ function renderDiary(){
     if(!amount || amount <= 0 || !date) return;
     addTx({ id: Date.now()+'-'+Math.random().toString(36).slice(2,7), type: state.type, amount, category, note, date });
   });
-  document.querySelectorAll('.del').forEach(btn=>{
+  document.querySelectorAll('.del[data-id]').forEach(btn=>{
     btn.addEventListener('click', ()=> deleteTx(btn.dataset.id));
+  });
+
+  const recurToggle = document.getElementById('recurToggle');
+  const recurForm = document.getElementById('recurForm');
+  recurToggle.addEventListener('click', ()=>{
+    recurForm.style.display = recurForm.style.display === 'none' ? 'block' : 'none';
+  });
+  document.querySelectorAll('#recurForm .seg button').forEach(b=>{
+    b.addEventListener('click', ()=>{ state.recurType = b.dataset.rtype; render(); });
+  });
+  recurForm.addEventListener('submit', e=>{
+    e.preventDefault();
+    const amount = parseFloat(document.getElementById('recurAmount').value);
+    const day = parseInt(document.getElementById('recurDay').value, 10);
+    const category = document.getElementById('recurCat').value;
+    const note = document.getElementById('recurNote').value.trim();
+    if(!amount || amount <= 0 || !day) return;
+    addRecurring({ id: Date.now()+'-'+Math.random().toString(36).slice(2,7), type: state.recurType, amount, category, note, day });
+  });
+  document.querySelectorAll('.recur-row .del').forEach(btn=>{
+    btn.addEventListener('click', ()=> deleteRecurring(btn.dataset.recurId));
   });
 }
 
@@ -739,6 +947,80 @@ function renderStats(){
 
   document.querySelectorAll('.period-bar button').forEach(b=>{
     b.addEventListener('click', ()=>{ state.period = b.dataset.period; render(); });
+  });
+}
+
+function renderGoals(){
+  const body = document.getElementById('viewBody');
+  const rate = state.rate;
+
+  body.innerHTML = `
+    ${state.goals.length === 0 ? '<div class="empty" style="margin-bottom:18px;">Пока нет ни одной цели — добавь, например, «Депозит» или «Билет домой», и следи за прогрессом.</div>' : state.goals.map(g=>{
+      const pct = g.target > 0 ? Math.min(100, g.saved / g.target * 100) : 0;
+      const left = Math.max(0, g.target - g.saved);
+      return `
+        <div class="goal-card">
+          <div class="goal-top">
+            <div class="goal-name">${escapeHtml(g.name)}</div>
+            <button class="goal-del" data-goal-id="${g.id}" title="Удалить цель">×</button>
+          </div>
+          <div class="goal-amounts">
+            <span class="saved">${fmt(g.saved)} zł</span>
+            <span class="target">из ${fmt(g.target)} zł</span>
+          </div>
+          <div class="goal-track"><div class="goal-fill" style="width:${pct.toFixed(1)}%"></div></div>
+          <div class="goal-sub">
+            <span>${pct.toFixed(0)}% · ≈ ${fmt(g.saved*rate)} грн</span>
+            <span>осталось ${fmt(left)} zł</span>
+          </div>
+          <div class="goal-actions">
+            <input type="number" step="0.01" min="0.01" placeholder="Сумма, zł" id="amt-${g.id}">
+            <button type="button" class="add-money" data-add="${g.id}">Пополнить</button>
+            <button type="button" class="take-money" data-take="${g.id}">Снять</button>
+          </div>
+        </div>
+      `;
+    }).join('')}
+
+    <div class="goal-form">
+      <div class="row">
+        <div class="field">
+          <label>Название цели</label>
+          <input type="text" id="goalName" placeholder="например, Депозит">
+        </div>
+        <div class="field amount">
+          <label>Сумма цели, zł</label>
+          <input type="number" step="0.01" min="0.01" id="goalTarget" placeholder="0.00">
+        </div>
+      </div>
+      <button type="button" class="submit" id="addGoalBtn">Создать цель</button>
+    </div>
+  `;
+
+  document.querySelectorAll('.goal-del').forEach(btn=>{
+    btn.addEventListener('click', ()=> deleteGoal(btn.dataset.goalId));
+  });
+  document.querySelectorAll('[data-add]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const id = btn.dataset.add;
+      const input = document.getElementById('amt-'+id);
+      const v = parseFloat(input.value);
+      if(v && v > 0) contributeGoal(id, v);
+    });
+  });
+  document.querySelectorAll('[data-take]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const id = btn.dataset.take;
+      const input = document.getElementById('amt-'+id);
+      const v = parseFloat(input.value);
+      if(v && v > 0) contributeGoal(id, -v);
+    });
+  });
+  document.getElementById('addGoalBtn').addEventListener('click', ()=>{
+    const name = document.getElementById('goalName').value.trim();
+    const target = parseFloat(document.getElementById('goalTarget').value);
+    if(!name || !target || target <= 0) return;
+    addGoal({ id: Date.now()+'-'+Math.random().toString(36).slice(2,7), name, target, saved: 0 });
   });
 }
 
