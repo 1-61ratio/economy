@@ -131,16 +131,14 @@
     font-size: 15px;
     font-weight: 600;
     line-height:1.25;
-    word-break: break-all;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
   .summary .cell .v2{
     font-family: var(--mono);
     font-size: 11px;
     color: var(--text-dim);
     margin-top: 3px;
-    word-break: break-all;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
   .summary .income .v{ color: var(--green); }
   .summary .expense .v{ color: var(--red); }
@@ -240,7 +238,7 @@
   .tx .cat{ font-size: 13.5px; font-weight: 500; }
   .tx .note{ font-size: 12px; color: var(--text-dim); margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .tx .date{ font-size: 11px; color: var(--text-dim); flex-shrink:0; width: 40px; }
-  .tx .amt{ font-family: var(--mono); font-size: 14px; font-weight:600; text-align:right; flex-shrink:0; min-width: 80px; max-width: 130px; word-break: break-all; }
+  .tx .amt{ font-family: var(--mono); font-size: 14px; font-weight:600; text-align:right; flex-shrink:0; min-width: 80px; max-width: 130px; overflow-wrap: break-word; }
   .tx.income .amt{ color: var(--green); }
   .tx.expense .amt{ color: var(--red); }
   .tx .amt .sub{ display:block; font-size: 10.5px; color: var(--text-dim); font-weight: 400; }
@@ -363,7 +361,9 @@ function catBreakdown(list, type){
 }
 
 function fmt(n){
-  return new Intl.NumberFormat('ru-RU', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n);
+  return new Intl.NumberFormat('ru-RU', {minimumFractionDigits:2, maximumFractionDigits:2})
+    .format(n)
+    .replace(/\u00A0/g, ' '); // обычный пробел вместо неразрывного — чтобы длинные числа переносились
 }
 
 function monthKey(dateStr){
