@@ -9,8 +9,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Финансы">
 <link rel="manifest" href="manifest.json">
-<link rel="icon" href="icons/icon-192.png">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>Учёт финансов — zł / грн</title>
 <style>
   :root{
@@ -44,6 +44,28 @@
   header .eyebrow{ font-size: 13px; color: var(--gold); letter-spacing: 0.02em; margin-bottom: 4px; }
   header h1{ font-size: 26px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.01em; }
   header p{ font-size: 14px; color: var(--text-dim); margin: 0; line-height: 1.5; }
+
+  .view-tabs{
+    display:flex;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 3px;
+    margin-bottom: 18px;
+  }
+  .view-tabs button{
+    flex:1;
+    border:none;
+    background: transparent;
+    color: var(--text-dim);
+    font-family: var(--sans);
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 9px 0;
+    border-radius: 9px;
+    cursor:pointer;
+  }
+  .view-tabs button.active{ background: var(--surface-2); color: var(--gold); }
 
   .rate-bar{
     display:flex; align-items:center; gap:10px;
@@ -194,6 +216,51 @@
   }
   .tx .del:hover{ color: var(--red); }
 
+  .period-bar{
+    display:flex;
+    gap: 6px;
+    margin-bottom: 20px;
+    overflow-x: auto;
+  }
+  .period-bar button{
+    flex-shrink:0;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--text-dim);
+    font-family: var(--sans);
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 7px 13px;
+    border-radius: 999px;
+    cursor:pointer;
+  }
+  .period-bar button.active{ background: var(--gold); color:#1a1305; border-color: var(--gold); }
+
+  .stats-section{ margin-bottom: 26px; }
+  .stats-section h2{ font-size: 14px; font-weight: 600; margin: 0 0 12px; }
+
+  .cat-list{ display:flex; flex-direction:column; gap:12px; }
+  .cat-row .cat-top{ display:flex; justify-content:space-between; font-size: 13px; margin-bottom: 5px; }
+  .cat-row .cat-top .name{ font-weight:500; }
+  .cat-row .cat-top .amt{ font-family: var(--mono); color: var(--text-dim); }
+  .cat-row .bar-track{ height: 7px; background: var(--surface-2); border-radius: 999px; overflow:hidden; }
+  .cat-row .bar-fill{ height:100%; border-radius: 999px; }
+  .cat-row.expense .bar-fill{ background: var(--red); }
+  .cat-row.income .bar-fill{ background: var(--green); }
+  .cat-row .cat-sub{ font-family: var(--mono); font-size:11px; color: var(--text-dim); margin-top: 3px; }
+
+  .trend-list{ display:flex; flex-direction:column; }
+  .trend-row{
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 10px 2px; border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 13px;
+  }
+  .trend-row:last-child{ border-bottom:none; }
+  .trend-row .m{ text-transform:capitalize; }
+  .trend-row .nums{ font-family: var(--mono); font-size:12px; text-align:right; color: var(--text-dim); }
+  .trend-row .nums b.pos{ color: var(--green); }
+  .trend-row .nums b.neg{ color: var(--red); }
+
   .empty{
     text-align:center;
     color: var(--text-dim);
@@ -219,8 +286,43 @@ let state = {
   rate: 10.0,      // 1 PLN = X UAH
   txs: [],         // {id, type, amount, category, note, date}
   type: 'expense',
-  loaded: false
+  loaded: false,
+  view: 'diary',   // 'diary' | 'stats'
+  period: 'month'  // 'month' | '3m' | '6m' | 'year' | 'all'
 };
+
+const PERIODS = [
+  { key: 'month', label: 'Месяц' },
+  { key: '3m', label: '3 мес' },
+  { key: '6m', label: '6 мес' },
+  { key: 'year', label: 'Год' },
+  { key: 'all', label: 'Всё время' }
+];
+
+function periodStart(period){
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth(), 1);
+  if(period === 'month') return d;
+  if(period === '3m'){ d.setMonth(d.getMonth() - 2); return d; }
+  if(period === '6m'){ d.setMonth(d.getMonth() - 5); return d; }
+  if(period === 'year'){ d.setMonth(d.getMonth() - 11); return d; }
+  return null; // 'all'
+}
+
+function periodLabel(period){
+  return PERIODS.find(p => p.key === period)?.label ?? '';
+}
+
+function catBreakdown(list, type){
+  const map = {};
+  list.filter(t => t.type === type).forEach(t=>{
+    map[t.category] = (map[t.category] || 0) + t.amount;
+  });
+  const total = Object.values(map).reduce((a,b)=>a+b, 0);
+  return Object.entries(map)
+    .map(([category, amount]) => ({ category, amount, pct: total ? (amount/total*100) : 0 }))
+    .sort((a,b)=> b.amount - a.amount);
+}
 
 function fmt(n){
   return new Intl.NumberFormat('ru-RU', {minimumFractionDigits:2, maximumFractionDigits:2}).format(n);
@@ -295,10 +397,33 @@ function render(){
   const app = document.getElementById('app');
   if(!state.loaded){ app.innerHTML = '<div class="loading">Загрузка данных…</div>'; return; }
 
+  app.innerHTML = `
+    <header>
+      <div class="eyebrow">PLN → UAH</div>
+      <h1>Учёт финансов</h1>
+      <p>Заносишь доходы и расходы в злотых — сумма пересчитывается в гривны по текущему курсу и складывается по месяцам.</p>
+    </header>
+
+    <div class="view-tabs">
+      <button type="button" data-view="diary" class="${state.view==='diary'?'active':''}">Дневник</button>
+      <button type="button" data-view="stats" class="${state.view==='stats'?'active':''}">Статистика</button>
+    </div>
+
+    <div id="viewBody"></div>
+  `;
+
+  document.querySelectorAll('.view-tabs button').forEach(b=>{
+    b.addEventListener('click', ()=>{ state.view = b.dataset.view; render(); });
+  });
+
+  if(state.view === 'diary') renderDiary(); else renderStats();
+}
+
+function renderDiary(){
+  const body = document.getElementById('viewBody');
   const t = totals(state.txs);
   const rate = state.rate;
 
-  // group by month
   const groups = {};
   state.txs.forEach(tx=>{
     const k = monthKey(tx.date);
@@ -310,13 +435,7 @@ function render(){
   const catOptions = (state.type === 'income' ? CATS_INCOME : CATS_EXPENSE)
     .map(c => `<option value="${c}">${c}</option>`).join('');
 
-  app.innerHTML = `
-    <header>
-      <div class="eyebrow">PLN → UAH</div>
-      <h1>Учёт финансов</h1>
-      <p>Заносишь доходы и расходы в злотых — сумма пересчитывается в гривны по текущему курсу и складывается по месяцам.</p>
-    </header>
-
+  body.innerHTML = `
     <div class="rate-bar">
       <span class="label">Курс: 1 zł =</span>
       <input id="rateInput" type="number" step="0.01" min="0.01" value="${rate}">
@@ -404,7 +523,6 @@ function render(){
     </div>
   `;
 
-  // wire events
   document.getElementById('rateInput').addEventListener('change', e => setRate(e.target.value));
   document.querySelectorAll('.seg button').forEach(b=>{
     b.addEventListener('click', ()=>{ state.type = b.dataset.type; render(); });
@@ -420,6 +538,99 @@ function render(){
   });
   document.querySelectorAll('.del').forEach(btn=>{
     btn.addEventListener('click', ()=> deleteTx(btn.dataset.id));
+  });
+}
+
+function renderStats(){
+  const body = document.getElementById('viewBody');
+  const rate = state.rate;
+  const start = periodStart(state.period);
+  const list = start ? state.txs.filter(t => new Date(t.date) >= start) : state.txs.slice();
+  const t = totals(list);
+
+  const expCats = catBreakdown(list, 'expense');
+  const incCats = catBreakdown(list, 'income');
+  const maxExp = expCats[0]?.amount || 1;
+  const maxInc = incCats[0]?.amount || 1;
+
+  // monthly trend within period, oldest -> newest
+  const groups = {};
+  list.forEach(tx=>{
+    const k = monthKey(tx.date);
+    if(!groups[k]) groups[k]=[];
+    groups[k].push(tx);
+  });
+  const months = Object.keys(groups).sort();
+
+  function catRows(cats, max, type){
+    if(cats.length === 0) return '<div class="empty">Нет операций за этот период</div>';
+    return `<div class="cat-list">${cats.map(c => `
+      <div class="cat-row ${type}">
+        <div class="cat-top">
+          <span class="name">${c.category}</span>
+          <span class="amt">${fmt(c.amount)} zł</span>
+        </div>
+        <div class="bar-track"><div class="bar-fill" style="width:${(c.amount/max*100).toFixed(1)}%"></div></div>
+        <div class="cat-sub">${c.pct.toFixed(1)}% · ≈ ${fmt(c.amount*rate)} грн</div>
+      </div>
+    `).join('')}</div>`;
+  }
+
+  body.innerHTML = `
+    <div class="period-bar">
+      ${PERIODS.map(p => `<button data-period="${p.key}" class="${state.period===p.key?'active':''}">${p.label}</button>`).join('')}
+    </div>
+
+    <div class="summary">
+      <div class="cell income">
+        <div class="k">Доход</div>
+        <div class="v">${fmt(t.income)} zł</div>
+        <div class="v2">≈ ${fmt(t.income*rate)} грн</div>
+      </div>
+      <div class="cell expense">
+        <div class="k">Расход</div>
+        <div class="v">${fmt(t.expense)} zł</div>
+        <div class="v2">≈ ${fmt(t.expense*rate)} грн</div>
+      </div>
+      <div class="cell balance">
+        <div class="k">Баланс</div>
+        <div class="v">${fmt(t.balance)} zł</div>
+        <div class="v2">≈ ${fmt(t.balance*rate)} грн</div>
+      </div>
+    </div>
+
+    <div class="stats-section">
+      <h2>Расходы по категориям · ${periodLabel(state.period)}</h2>
+      ${catRows(expCats, maxExp, 'expense')}
+    </div>
+
+    <div class="stats-section">
+      <h2>Доходы по категориям · ${periodLabel(state.period)}</h2>
+      ${catRows(incCats, maxInc, 'income')}
+    </div>
+
+    ${months.length > 1 ? `
+    <div class="stats-section">
+      <h2>По месяцам</h2>
+      <div class="trend-list">
+        ${months.slice().reverse().map(k=>{
+          const mt = totals(groups[k]);
+          return `
+            <div class="trend-row">
+              <span class="m">${monthLabel(k)}</span>
+              <span class="nums">
+                <b class="pos">+${fmt(mt.income)}</b> / <b class="neg">−${fmt(mt.expense)}</b> zł
+                <br>баланс ${fmt(mt.balance)} zł ≈ ${fmt(mt.balance*rate)} грн
+              </span>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>` : ''}
+  `;
+
+  document.querySelectorAll('.period-bar button').forEach(b=>{
+    b.addEventListener('click', ()=>{ state.period = b.dataset.period; render(); });
   });
 }
 
